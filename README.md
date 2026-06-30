@@ -311,6 +311,13 @@ the workarounds in this README for until they're fixed upstream:
   Controller does a cluster-scoped ConfigMap watch but the chart's
   ClusterRole doesn't grant cluster-scoped ConfigMap access. Workaround:
   manual ClusterRole + ClusterRoleBinding.
+- **[#473](https://github.com/lenaxia/LLMSafeSpaces/issues/473)** —
+  Frontend Ingress routes `/api → API service` without stripping the
+  `/api` prefix; the API has no `/api` mount, so every call from the
+  SPA returns 404. **The platform's UI is currently non-functional
+  end-to-end until this is fixed upstream.** Frontend HTML loads, but
+  no data populates. There's no clean workaround at the ingress layer
+  without changing how the API binary mounts its routes.
 
 ## Design choices
 

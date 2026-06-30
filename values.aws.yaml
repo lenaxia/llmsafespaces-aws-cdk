@@ -17,21 +17,9 @@ api:
       level: info
       development: false
   ingress:
-    enabled: true
-    className: alb
-    annotations:
-      kubernetes.io/ingress.class: alb
-      alb.ingress.kubernetes.io/scheme: internet-facing
-      alb.ingress.kubernetes.io/target-type: ip
-      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
-      alb.ingress.kubernetes.io/ssl-redirect: '443'
-      alb.ingress.kubernetes.io/healthcheck-path: /livez
-      # certificate-arn injected via --set at install time
-    hosts:
-      - host: safespaces.thekao.cloud
-        paths:
-          - path: /
-            pathType: Prefix
+    # API is reached via the frontend ingress at /api; no separate API
+    # ingress needed.
+    enabled: false
 
 controller:
   replicaCount: 1
@@ -45,10 +33,22 @@ frontend:
   image:
     pullPolicy: IfNotPresent
   ingress:
-    # Frontend is served at / via the API ingress route.
-    # The chart's API ingress goes to the API; the frontend is reached
-    # through the API's static-file handler.
-    enabled: false
+    enabled: true
+    className: alb
+    host: safespaces.thekao.cloud
+    # The chart's frontend-ingress.yaml hard-codes a `tls:` block that
+    # references a Secret (for nginx-ingress + cert-manager pattern).
+    # ALB terminates TLS via an ACM cert annotation, NOT a K8s TLS
+    # Secret, so we set tls: false and rely on the annotation.
+    tls: false
+    annotations:
+      kubernetes.io/ingress.class: alb
+      alb.ingress.kubernetes.io/scheme: internet-facing
+      alb.ingress.kubernetes.io/target-type: ip
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+      alb.ingress.kubernetes.io/ssl-redirect: '443'
+      alb.ingress.kubernetes.io/healthcheck-path: /livez
+      # certificate-arn injected via --set at install time
 
 mcp:
   # ghcr.io/lenaxia/llmsafespaces/mcp image isn't published yet
