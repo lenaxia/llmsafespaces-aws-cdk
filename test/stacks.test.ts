@@ -21,6 +21,8 @@ function makeApp(tier: 'mvp' | 'prod') {
     nodeSpot: tier === 'mvp',
     displayRegion: 'us-west-2',
     awsProfile: 'test',
+    opsRepoUrl: 'https://github.com/example/ops.git',
+    opsRepoBranch: 'main',
   });
   const data = new DataStack(app, `${tier}-Data`, {
     env, tags, vpc: network.vpc,
@@ -32,7 +34,16 @@ function makeApp(tier: 'mvp' | 'prod') {
     cluster: cluster.cluster,
     postgresSecret: data.postgresSecret,
     valkeyAuthSecret: data.valkeyAuthSecret,
+    postgresEndpoint: data.postgres.dbInstanceEndpointAddress,
+    valkeyEndpoint: data.valkey.attrPrimaryEndPointAddress,
     hostname: 'safespaces.example.com',
+    externalSecretsRoleArn: cluster.externalSecretsRole.roleArn,
+    imageRefs: {
+      api: 'ghcr.io/example/api:1.0.0',
+      controller: 'ghcr.io/example/controller:1.0.0',
+      frontend: 'ghcr.io/example/frontend:1.0.0',
+      base: 'ghcr.io/example/base:1.0.0',
+    },
   });
 
   return { network, cluster, data, platform };

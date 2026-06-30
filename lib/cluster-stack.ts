@@ -21,6 +21,10 @@ export interface ClusterStackProps extends cdk.StackProps {
   readonly displayRegion: string;
   /** AWS CLI profile name (cosmetic, for the KubectlCmd output). */
   readonly awsProfile: string;
+  /** Git URL of the ops-prod repo (Flux GitRepository source). */
+  readonly opsRepoUrl: string;
+  /** Branch / ref of the ops-prod repo. */
+  readonly opsRepoBranch: string;
 }
 
 /**
@@ -59,8 +63,8 @@ export class ClusterStack extends cdk.Stack {
     this.grantClusterAdmin(props.adminRoleArn);
     this.installEbsCsiDriver();
     this.installAlbController(nodeGroup);
-    this.installCertManager(nodeGroup);
-    this.externalSecretsRole = this.installExternalSecretsOperator(nodeGroup);
+    this.externalSecretsRole = this.buildExternalSecretsRole();
+    this.installFlux(nodeGroup, props);
 
     const gvisorInstaller = buildGvisorInstaller(this.cluster);
     gvisorInstaller.node.addDependency(nodeGroup);
@@ -182,33 +186,17 @@ export class ClusterStack extends cdk.Stack {
     controller.node.addDependency(nodeGroup);
   }
 
-  private installCertManager(nodeGroup: eks.Nodegroup): void {
-    const chart = this.cluster.addHelmChart('CertManager', {
-      chart: 'cert-manager',
-      release: 'cert-manager',
-      repository: 'https://charts.jetstack.io',
-      namespace: 'cert-manager',
-      version: 'v1.16.2',
-      createNamespace: true,
-      timeout: cdk.Duration.minutes(15),
-      values: {
-        crds: { enabled: true },
-        global: { leaderElection: { namespace: 'cert-manager' } },
-      },
-    });
-    chart.node.addDependency(nodeGroup);
-  }
-
   /**
-   * external-secrets-operator + IRSA role used by ClusterSecretStore.
+   * IRSA role for external-secrets-operator. The operator itself is
+   * installed by Flux (lenaxia/llmsafespaces-ops-prod) — CDK only
+   * creates the IAM role because IAM is a cloud-API resource.
    *
-   * The operator's controller pod assumes this role via IRSA; the role
-   * has `secretsmanager:GetSecretValue` scoped to secrets tagged for
-   * this deployment. PlatformStack creates ExternalSecret CRs that
-   * reference SM secrets by ARN; the operator materializes them as
-   * K8s Secrets.
+   * Read scope is constrained via ResourceTag: `llmsafespaces:role=app-secret`.
+   * PlatformStack tags every SM secret it creates with that key/value,
+   * so the operator can read them but not arbitrary other secrets in
+   * the account.
    */
-  private installExternalSecretsOperator(nodeGroup: eks.Nodegroup): iam.Role {
+  private buildExternalSecretsRole(): iam.Role {
     const role = new iam.Role(this, 'ExternalSecretsRole', {
       assumedBy: new iam.FederatedPrincipal(
         this.cluster.openIdConnectProvider.openIdConnectProviderArn,
@@ -226,9 +214,6 @@ export class ClusterStack extends cdk.Stack {
       description: 'IRSA role for external-secrets-operator to read Secrets Manager',
     });
 
-    // Scope read access via tag: SM secrets in PlatformStack get tagged
-    // with `llmsafespaces:role=app-secret` so this role can read them
-    // but not arbitrary other secrets in the account.
     role.addToPolicy(new iam.PolicyStatement({
       actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
       resources: ['*'],
@@ -239,30 +224,103 @@ export class ClusterStack extends cdk.Stack {
       },
     }));
 
-    const chart = this.cluster.addHelmChart('ExternalSecrets', {
-      chart: 'external-secrets',
-      release: 'external-secrets',
-      repository: 'https://charts.external-secrets.io',
-      namespace: 'external-secrets',
-      version: '0.10.5',
-      createNamespace: true,
-      timeout: cdk.Duration.minutes(15),
-      values: {
-        installCRDs: true,
-        serviceAccount: {
-          annotations: {
-            'eks.amazonaws.com/role-arn': role.roleArn,
-          },
+    return role;
+  }
+
+  /**
+   * Install FluxCD pointing at lenaxia/llmsafespaces-ops-prod.
+   *
+   * After this lands:
+   *   1. Flux is running in flux-system namespace
+   *   2. GitRepository `llmsafespaces-ops` is fetching the ops repo
+   *   3. Top-level `cluster` Kustomization is applied
+   *   4. Flux reconciles everything under kubernetes/ continuously
+   *
+   * Out-of-band manual step (one time): operator must create the
+   * `sops-age` Secret in flux-system from the team's age private key.
+   * Without it, encrypted secrets in the ops repo can't be decrypted
+   * (Flux Kustomizations stuck waiting). Documented in README.
+   */
+  private installFlux(nodeGroup: eks.Nodegroup, props: ClusterStackProps): void {
+    // Install Flux from the published OCI manifests.
+    const fluxInstall = this.cluster.addManifest('FluxNamespace', {
+      apiVersion: 'v1',
+      kind: 'Namespace',
+      metadata: {
+        name: 'flux-system',
+        labels: {
+          'pod-security.kubernetes.io/enforce': 'baseline',
+          'app.kubernetes.io/instance': 'flux-system',
+          'app.kubernetes.io/part-of': 'flux',
         },
-        // Disable the bitwarden integration to shrink the install.
-        bitwarden: { enabled: false },
-        webhook: { create: true },
-        certController: { create: true },
       },
     });
-    chart.node.addDependency(nodeGroup);
+    fluxInstall.node.addDependency(nodeGroup);
 
-    return role;
+    // Flux's own install via Helm — `fluxcd-community/flux2` chart.
+    // Alternative: apply the upstream manifest from
+    // github.com/fluxcd/flux2/releases/.../install.yaml, but the chart
+    // handles CRD + version pinning cleaner.
+    const fluxChart = this.cluster.addHelmChart('Flux', {
+      chart: 'flux2',
+      release: 'flux2',
+      repository: 'https://fluxcd-community.github.io/helm-charts',
+      namespace: 'flux-system',
+      version: '2.14.1',
+      createNamespace: false,
+      timeout: cdk.Duration.minutes(10),
+      values: {
+        // Increase reconcile parallelism + API throttling. Defaults are
+        // tuned for very small clusters; we expect dozens of
+        // HelmReleases at steady state.
+        kustomizeController: {
+          extraArgs: ['--concurrent=8', '--kube-api-qps=500', '--kube-api-burst=1000'],
+        },
+        helmController: {
+          extraArgs: ['--concurrent=8', '--kube-api-qps=500', '--kube-api-burst=1000'],
+        },
+        sourceController: {
+          extraArgs: ['--concurrent=8', '--kube-api-qps=500', '--kube-api-burst=1000'],
+        },
+      },
+    });
+    fluxChart.node.addDependency(fluxInstall);
+
+    // Bootstrap manifest: a GitRepository pointing at ops-prod and a
+    // root Kustomization that points at kubernetes/flux/config.
+    //
+    // After Flux applies this, ops-prod's own kubernetes/flux/config/cluster.yaml
+    // takes over as the source of truth (self-managing).
+    const bootstrap = this.cluster.addManifest('FluxBootstrap',
+      {
+        apiVersion: 'source.toolkit.fluxcd.io/v1',
+        kind: 'GitRepository',
+        metadata: { name: 'llmsafespaces-ops', namespace: 'flux-system' },
+        spec: {
+          interval: '2m',
+          url: props.opsRepoUrl,
+          ref: { branch: props.opsRepoBranch },
+          ignore: '/*\n!/kubernetes\n',
+        },
+      },
+      {
+        apiVersion: 'kustomize.toolkit.fluxcd.io/v1',
+        kind: 'Kustomization',
+        metadata: { name: 'flux-system', namespace: 'flux-system' },
+        spec: {
+          interval: '10m',
+          path: './kubernetes/flux/config',
+          prune: true,
+          wait: true,
+          sourceRef: { kind: 'GitRepository', name: 'llmsafespaces-ops' },
+          decryption: {
+            provider: 'sops',
+            secretRef: { name: 'sops-age' },
+          },
+        },
+      },
+    );
+    bootstrap.node.addDependency(fluxChart);
   }
 
   private emitOutputs(props: ClusterStackProps): void {

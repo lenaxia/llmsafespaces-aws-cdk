@@ -40,6 +40,8 @@ class LlmSafeSpacesStage extends cdk.Stage {
       nodeSpot: config.nodeSpot,
       displayRegion: config.region,
       awsProfile: config.awsProfile,
+      opsRepoUrl: config.opsRepoUrl,
+      opsRepoBranch: config.opsRepoBranch,
     });
 
     const data = new DataStack(this, 'Data', {
@@ -55,7 +57,11 @@ class LlmSafeSpacesStage extends cdk.Stage {
       cluster: cluster.cluster,
       postgresSecret: data.postgresSecret,
       valkeyAuthSecret: data.valkeyAuthSecret,
+      postgresEndpoint: data.postgres.dbInstanceEndpointAddress,
+      valkeyEndpoint: data.valkey.attrPrimaryEndPointAddress,
       hostname: config.hostname,
+      externalSecretsRoleArn: cluster.externalSecretsRole.roleArn,
+      imageRefs: config.imageRefs,
     });
   }
 }

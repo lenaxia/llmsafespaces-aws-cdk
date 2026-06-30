@@ -57,6 +57,10 @@ export interface ResolvedConfig {
    * Redis client doesn't support TLS yet. Flip when that ships upstream.
    */
   readonly valkeyTls: boolean;
+  /** GitOps repo URL (Flux GitRepository source). */
+  readonly opsRepoUrl: string;
+  /** GitOps repo branch / ref. */
+  readonly opsRepoBranch: string;
 }
 
 const CTX = 'llmsafespaces:';
@@ -122,6 +126,9 @@ export function resolveConfig(scope: Construct): ResolvedConfig {
     ]),
     nodeSpot: optional<boolean>(scope, 'nodeSpot', tier === 'mvp'),
     valkeyTls: optional<boolean>(scope, 'valkeyTls', false),
+    opsRepoUrl: optional<string>(scope, 'opsRepoUrl',
+      'https://github.com/lenaxia/llmsafespaces-ops-prod.git'),
+    opsRepoBranch: optional<string>(scope, 'opsRepoBranch', 'main'),
   };
 }
 
