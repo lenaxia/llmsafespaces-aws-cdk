@@ -1,0 +1,121 @@
+# AWS-targeted Helm overrides for llmsafespaces.
+# Used by `helm install` AFTER `cdk deploy` provisions the infra.
+#
+# Values that come from CDK outputs (postgres host, redis host,
+# certificate ARN, image tag) are passed via --set on the helm CLI;
+# this file holds the static AWS-shaped overrides only.
+
+api:
+  replicaCount: 1
+  image:
+    pullPolicy: IfNotPresent
+  config:
+    security:
+      allowedOrigins:
+        - "https://safespaces.thekao.cloud"
+    logging:
+      level: info
+      development: false
+  ingress:
+    enabled: true
+    className: alb
+    annotations:
+      kubernetes.io/ingress.class: alb
+      alb.ingress.kubernetes.io/scheme: internet-facing
+      alb.ingress.kubernetes.io/target-type: ip
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+      alb.ingress.kubernetes.io/ssl-redirect: '443'
+      alb.ingress.kubernetes.io/healthcheck-path: /livez
+      # certificate-arn injected via --set at install time
+    hosts:
+      - host: safespaces.thekao.cloud
+        paths:
+          - path: /
+            pathType: Prefix
+
+controller:
+  replicaCount: 1
+  image:
+    pullPolicy: IfNotPresent
+  inferenceRelay:
+    enabled: false
+
+frontend:
+  enabled: true
+  image:
+    pullPolicy: IfNotPresent
+  ingress:
+    # Frontend is served at / via the API ingress route.
+    # The chart's API ingress goes to the API; the frontend is reached
+    # through the API's static-file handler.
+    enabled: false
+
+mcp:
+  # ghcr.io/lenaxia/llmsafespaces/mcp image isn't published yet
+  # (per values-cluster.yaml comment from the upstream repo).
+  enabled: false
+
+# Connect to RDS (host/password come from --set + the credentials Secret)
+postgresql:
+  port: 5432
+  user: llmsafespaces_admin   # matches rds.Credentials.fromGeneratedSecret
+  database: llmsafespaces
+  sslMode: require
+
+# Connect to ElastiCache Valkey
+redis:
+  port: 6379
+  db: 0
+
+# Reference the existing Secret created by the CDK PlatformStack so the
+# chart doesn't try to auto-generate (it would race with our manifest).
+externalSecret:
+  create: false
+  existingSecret: llmsafespaces-credentials
+
+# CRDs are installed by the chart (one-time). For upgrades, the operator
+# applies CRDs out of band; see chart README.
+crds:
+  install: true
+
+# RBAC scope.
+# The controller's default mode is cluster-wide (watchNamespaces empty),
+# which requires cluster-scoped ClusterRole bindings. Setting rbac.scope
+# to "namespace" while leaving watchNamespaces empty causes the
+# controller-runtime informer cache to fail syncing on cluster-scoped
+# resources (ServiceAccount, PVC). Symptom: controller CrashLoopBackOff
+# with "failed to wait for workspace caches to sync kind source:
+# *v1.ServiceAccount: timed out waiting for cache to be synced".
+#
+# Use rbac.scope: cluster for the default cluster-wide mode.
+rbac:
+  scope: cluster
+
+# Webhooks need cert-manager (installed by the cluster stack).
+webhooks:
+  enabled: true
+  failurePolicy: Fail
+  allowedImageRegistries:
+    - "ghcr.io/lenaxia/"
+
+# Default-deny ingress/egress NetworkPolicies for workspace pods.
+networkPolicy:
+  enabled: true
+
+# No monitoring stack on MVP — flip on after installing kube-prometheus-stack.
+monitoring:
+  enabled: false
+
+# Enable gVisor (runsc) for workspace pods.
+# RuntimeClass `gvisor` is created by the CDK ClusterStack and the runsc
+# binary is installed via launch-template userData on every node.
+gvisor:
+  enabled: true
+  defaultRuntimeClass: gvisor
+
+# Free-tier inference relay — leave default (Cloudflare Worker at
+# https://relay.safespaces.dev). No per-user provider creds required;
+# users hit the public Zen relay via the API.
+
+# Optional: tighten workspace storage caps.
+# webhooks.maxWorkspaceStorageGi defaults to 1024 GiB — fine to leave.
