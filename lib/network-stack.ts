@@ -2,17 +2,18 @@ import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import { Construct } from 'constructs';
 
+import { HaPosture } from './config';
+
 export interface NetworkStackProps extends cdk.StackProps {
-  tags?: Record<string, string>;
+  /** HA posture (drives NAT count). */
+  readonly ha: HaPosture;
 }
 
 /**
- * VPC with 2 AZs (EKS hard requirement) and a SINGLE NAT Gateway
- * in one AZ to keep costs down (~$33/mo saved vs. 2 NATs).
+ * VPC with 2 AZs (EKS requirement) and tier-driven NAT redundancy.
  *
- * Trade-off: if the AZ holding the NAT loses connectivity, pods in the
- * other AZ can't reach internet (LLM providers, GHCR). Acceptable for
- * MVP; flip to natGateways: 2 for production.
+ * The 1-NAT MVP saves ~$33/mo vs 2 NATs at the cost of AZ-level
+ * availability if the NAT's AZ fails. The prod tier flips to 2 NATs.
  */
 export class NetworkStack extends cdk.Stack {
   public readonly vpc: ec2.Vpc;
@@ -22,29 +23,18 @@ export class NetworkStack extends cdk.Stack {
 
     this.vpc = new ec2.Vpc(this, 'Vpc', {
       maxAzs: 2,
-      natGateways: 1,
+      natGateways: props.ha.natGatewayCount,
       ipAddresses: ec2.IpAddresses.cidr('10.42.0.0/16'),
       subnetConfiguration: [
-        {
-          cidrMask: 24,
-          name: 'public',
-          subnetType: ec2.SubnetType.PUBLIC,
-        },
-        {
-          cidrMask: 22,
-          name: 'private',
-          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
-        },
-        {
-          cidrMask: 24,
-          name: 'isolated',
-          subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
-        },
+        { cidrMask: 24, name: 'public', subnetType: ec2.SubnetType.PUBLIC },
+        { cidrMask: 22, name: 'private', subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+        { cidrMask: 24, name: 'isolated', subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       ],
     });
 
-    // Subnet tags required by the AWS Load Balancer Controller for auto-discovery.
-    // Without these, alb-ingress can't pick which subnets to attach the ALB to.
+    // Subnet tags required by AWS Load Balancer Controller for ALB
+    // subnet auto-discovery. Without them, the controller can't pick
+    // which subnets to attach to.
     for (const subnet of this.vpc.publicSubnets) {
       cdk.Tags.of(subnet).add('kubernetes.io/role/elb', '1');
     }

@@ -1,18 +1,16 @@
 # AWS-targeted Helm overrides for llmsafespaces.
-# Used by `helm install` AFTER `cdk deploy` provisions the infra.
 #
-# Values that come from CDK outputs (postgres host, redis host,
-# certificate ARN, image tag) are passed via --set on the helm CLI;
-# this file holds the static AWS-shaped overrides only.
+# Dynamic values (postgres host, redis host, certificate ARN, image refs,
+# hostname, ingress annotations) are passed via --set by
+# scripts/install-chart.sh. This file holds only the static AWS-shaped
+# overrides.
 
 api:
   replicaCount: 1
   image:
     pullPolicy: IfNotPresent
   config:
-    security:
-      allowedOrigins:
-        - "https://safespaces.thekao.cloud"
+    # allowedOrigins set via --set in scripts/install-chart.sh
     logging:
       level: info
       development: false
@@ -37,8 +35,6 @@ controller:
 # that secret, every free-model call returns 403 and the UI shows
 # "Agent is restarting (credential change, OOM, or crash)".
 #
-# Set this to your own CF Worker URL if you deploy your own relay for
-# IP distribution / rate limiting (see workers/inference-relay/).
 # See lenaxia/LLMSafeSpaces#474.
 inferenceRelayURL: ""
 
@@ -49,11 +45,13 @@ frontend:
   ingress:
     enabled: true
     className: alb
-    host: safespaces.thekao.cloud
+    # host + certificate-arn injected via --set at install time
+    #
     # The chart's frontend-ingress.yaml hard-codes a `tls:` block that
-    # references a Secret (for nginx-ingress + cert-manager pattern).
-    # ALB terminates TLS via an ACM cert annotation, NOT a K8s TLS
-    # Secret, so we set tls: false and rely on the annotation.
+    # references a K8s TLS Secret (the nginx-ingress + cert-manager pattern).
+    # ALB terminates TLS via the certificate-arn annotation, not a K8s
+    # Secret, so we disable the chart's TLS block and rely on the
+    # annotation.
     tls: false
     annotations:
       kubernetes.io/ingress.class: alb
@@ -62,74 +60,58 @@ frontend:
       alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
       alb.ingress.kubernetes.io/ssl-redirect: '443'
       alb.ingress.kubernetes.io/healthcheck-path: /livez
-      # certificate-arn injected via --set at install time
 
 mcp:
-  # ghcr.io/lenaxia/llmsafespaces/mcp image isn't published yet
-  # (per values-cluster.yaml comment from the upstream repo).
+  # ghcr.io/lenaxia/llmsafespaces/mcp image isn't published yet.
   enabled: false
 
-# Connect to RDS (host/password come from --set + the credentials Secret)
+# Postgres connection (host comes via --set; password via external-secrets
+# materializing the K8s `llmsafespaces-credentials` Secret).
 postgresql:
   port: 5432
-  user: llmsafespaces_admin   # matches rds.Credentials.fromGeneratedSecret
+  user: llmsafespaces_admin   # matches rds.Credentials.fromGeneratedSecret in DataStack
   database: llmsafespaces
   sslMode: require
 
-# Connect to ElastiCache Valkey
+# Valkey connection (host comes via --set).
 redis:
   port: 6379
   db: 0
 
-# Reference the existing Secret created by the CDK PlatformStack so the
-# chart doesn't try to auto-generate (it would race with our manifest).
+# Reference the K8s Secret materialized by external-secrets-operator
+# (PlatformStack creates the ExternalSecret CR pointing at SM).
 externalSecret:
   create: false
   existingSecret: llmsafespaces-credentials
 
-# CRDs are installed by the chart (one-time). For upgrades, the operator
-# applies CRDs out of band; see chart README.
 crds:
   install: true
 
-# RBAC scope.
-# The controller's default mode is cluster-wide (watchNamespaces empty),
-# which requires cluster-scoped ClusterRole bindings. Setting rbac.scope
-# to "namespace" while leaving watchNamespaces empty causes the
-# controller-runtime informer cache to fail syncing on cluster-scoped
-# resources (ServiceAccount, PVC). Symptom: controller CrashLoopBackOff
-# with "failed to wait for workspace caches to sync kind source:
-# *v1.ServiceAccount: timed out waiting for cache to be synced".
-#
-# Use rbac.scope: cluster for the default cluster-wide mode.
+# Cluster-scoped RBAC. The controller's default mode is cluster-wide
+# (watchNamespaces empty); namespace-scoped RBAC would cause the
+# controller-runtime informer to fail syncing cluster-scoped resources.
 rbac:
   scope: cluster
 
-# Webhooks need cert-manager (installed by the cluster stack).
+# Validating webhooks rely on cert-manager (installed by ClusterStack).
 webhooks:
   enabled: true
   failurePolicy: Fail
   allowedImageRegistries:
     - "ghcr.io/lenaxia/"
 
-# Default-deny ingress/egress NetworkPolicies for workspace pods.
+# Default-deny NetworkPolicies for workspace pods.
 networkPolicy:
   enabled: true
 
-# No monitoring stack on MVP — flip on after installing kube-prometheus-stack.
+# Monitoring stack disabled by default; install kube-prometheus-stack
+# separately and flip on after.
 monitoring:
   enabled: false
 
-# Enable gVisor (runsc) for workspace pods.
-# RuntimeClass `gvisor` is created by the CDK ClusterStack and the runsc
-# binary is installed via launch-template userData on every node.
+# Enable gVisor (runsc) for workspace pods. RuntimeClass `gvisor` is
+# created by the chart (templates/runtime-class.yaml); the runsc binary
+# is installed by the CDK ClusterStack's gvisor-installer DaemonSet.
 gvisor:
   enabled: true
   defaultRuntimeClass: gvisor
-
-# Free-tier inference relay — leave default (Cloudflare Worker at
-# https://relay.safespaces.dev). No per-user provider creds required;
-# users hit the public Zen relay via the API.
-
-# Optional: tighten workspace storage caps.
-# webhooks.maxWorkspaceStorageGi defaults to 1024 GiB — fine to leave.

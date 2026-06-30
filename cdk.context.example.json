@@ -1,0 +1,37 @@
+{
+  "_comment": "Copy this to cdk.context.json and edit the values for your environment.",
+  "_comment_account": "Your 12-digit AWS account ID.",
+  "llmsafespaces:account": "111111111111",
+
+  "_comment_region": "AWS region. Defaults to us-west-2 if omitted.",
+  "llmsafespaces:region": "us-west-2",
+
+  "_comment_hostname": "Public hostname; you'll CNAME this to the ALB after deploy.",
+  "llmsafespaces:hostname": "safespaces.example.com",
+
+  "_comment_adminRoleArn": "IAM role ARN granted cluster-admin via EKS access entry. This is the role your kubectl assumes.",
+  "llmsafespaces:adminRoleArn": "arn:aws:iam::111111111111:role/Admin",
+
+  "_comment_awsProfile": "AWS CLI profile name used in operator-facing output strings (kubectl update-kubeconfig hint, etc.). Cosmetic only.",
+  "llmsafespaces:awsProfile": "default",
+
+  "_comment_tier": "Deployment tier: 'mvp' (single-AZ, ~$200/mo) or 'prod' (multi-AZ HA, ~$700/mo).",
+  "llmsafespaces:tier": "mvp",
+
+  "_comment_imageRefs": "Per-image OCI refs. Prefer immutable digests (@sha256:...) over tags; upstream GC's old tags.",
+  "llmsafespaces:imageRefs": {
+    "api": "ghcr.io/lenaxia/llmsafespaces/api:ts-1782762331",
+    "controller": "ghcr.io/lenaxia/llmsafespaces/controller:ts-1782762331",
+    "frontend": "ghcr.io/lenaxia/llmsafespaces/frontend:ts-1782762331",
+    "base": "ghcr.io/lenaxia/llmsafespaces/base:ts-1782762331"
+  },
+
+  "_comment_nodeInstanceTypes": "EC2 spot pool diversity. AMD64 because lenaxia/LLMSafeSpaces#462 (arm64 binary bug).",
+  "llmsafespaces:nodeInstanceTypes": ["m6a.large", "m5a.large", "t3a.large"],
+
+  "_comment_nodeSpot": "Spot vs on-demand. Defaults to true for mvp, false for prod.",
+  "llmsafespaces:nodeSpot": true,
+
+  "_comment_valkeyTls": "Enable Valkey transit encryption + AUTH. Off until lenaxia/LLMSafeSpaces#465 ships TLS support in the chart's Redis client.",
+  "llmsafespaces:valkeyTls": false
+}
