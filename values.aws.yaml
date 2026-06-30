@@ -28,6 +28,20 @@ controller:
   inferenceRelay:
     enabled: false
 
+# Inference Relay URL. Empty disables the CF Worker relay path and lets
+# the workspace agent route opencode directly to opencode.ai/zen/v1 using
+# the built-in "public" anonymous key (free-tier Zen access).
+#
+# The chart default (https://relay.safespaces.dev) is the maintainer's
+# private CF Worker that requires an out-of-band shared secret; without
+# that secret, every free-model call returns 403 and the UI shows
+# "Agent is restarting (credential change, OOM, or crash)".
+#
+# Set this to your own CF Worker URL if you deploy your own relay for
+# IP distribution / rate limiting (see workers/inference-relay/).
+# See lenaxia/LLMSafeSpaces#474.
+inferenceRelayURL: ""
+
 frontend:
   enabled: true
   image:
