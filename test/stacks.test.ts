@@ -105,6 +105,24 @@ describe('DataStack', () => {
     // Only the RDS-managed secret should exist; no ValkeyAuthToken
     t.resourceCountIs('AWS::SecretsManager::Secret', 1);
   });
+
+  // Regression: rds.DatabaseInstance.secret returns the
+  // SecretTargetAttachment, NOT the underlying SM Secret. The actual
+  // CfnSecret lives at <db>/Secret/Resource. Tagging via the L2
+  // ISecret ref's defaultChild gets the attachment, not the secret;
+  // tagAppSecret() walks up via .node.scope to find the real Secret.
+  // Without this, external-secrets-operator's IRSA policy denies
+  // GetSecretValue on the RDS Secret because the tag condition
+  // (llmsafespaces:role=app-secret) never matches.
+  test('RDS Postgres Secret is tagged for IRSA access', () => {
+    const { data } = makeApp('mvp');
+    const t = Template.fromStack(data);
+    t.hasResourceProperties('AWS::SecretsManager::Secret', {
+      Tags: Match.arrayWith([
+        { Key: 'llmsafespaces:role', Value: 'app-secret' },
+      ]),
+    } as object);
+  });
 });
 
 describe('ClusterStack', () => {

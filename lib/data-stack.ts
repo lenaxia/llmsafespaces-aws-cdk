@@ -7,6 +7,37 @@ import { Construct } from 'constructs';
 
 import { HaPosture } from './config';
 
+/**
+ * Tag a SecretsManager Secret with `llmsafespaces:role=app-secret` so the
+ * IRSA role used by external-secrets-operator (whose policy is scoped via
+ * a ResourceTag condition) can read it.
+ *
+ * Subtle: `rds.DatabaseInstance.secret` returns the SecretTargetAttachment,
+ * not the underlying SM Secret. The actual `CfnSecret` is at
+ * `<db>/Secret/Resource`. We walk up to find it; works for both the RDS
+ * pattern and a standalone secretsmanager.Secret (where defaultChild
+ * already is the CfnSecret).
+ */
+function tagAppSecret(secret: secretsmanager.ISecret): void {
+  // Try defaultChild first — works for standalone Secret constructs.
+  let target = secret.node.defaultChild as cdk.CfnResource | undefined;
+
+  // For RDS-managed secrets, .secret returns the attachment; the real
+  // CfnSecret is a sibling under .secret.node.scope (the DatabaseSecret).
+  if (target && target.cfnResourceType === 'AWS::SecretsManager::SecretTargetAttachment') {
+    const databaseSecret = secret.node.scope;
+    target = databaseSecret?.node.defaultChild as cdk.CfnResource | undefined;
+  }
+
+  if (!target || target.cfnResourceType !== 'AWS::SecretsManager::Secret') {
+    throw new Error(
+      `tagAppSecret: couldn't resolve CfnSecret for ${secret.node.path} ` +
+      `(found ${target?.cfnResourceType ?? 'nothing'})`,
+    );
+  }
+  cdk.Tags.of(target).add('llmsafespaces:role', 'app-secret');
+}
+
 export interface DataStackProps extends cdk.StackProps {
   readonly vpc: ec2.IVpc;
   readonly clusterSecurityGroup: ec2.ISecurityGroup;
@@ -43,9 +74,21 @@ export class DataStack extends cdk.Stack {
     this.postgres = this.buildPostgres(props);
     this.postgresSecret = this.postgres.secret!;
 
+    // Tag the RDS-managed Secret so the IRSA role for
+    // external-secrets-operator (scoped via `llmsafespaces:role=app-secret`
+    // tag condition) can read it. Doing this in DataStack rather than
+    // PlatformStack — cross-stack tag mutation on imported ISecrets
+    // doesn't propagate. Even within the same stack, `Tags.of(ISecret)`
+    // doesn't reach the underlying CfnSecret because the secret is an
+    // interface ref; we need the raw L1 resource.
+    tagAppSecret(this.postgresSecret);
+
     const valkey = this.buildValkey(props);
     this.valkey = valkey.replicationGroup;
     this.valkeyAuthSecret = valkey.authSecret;
+    if (this.valkeyAuthSecret) {
+      tagAppSecret(this.valkeyAuthSecret);
+    }
 
     this.emitOutputs(props.valkeyTls);
   }

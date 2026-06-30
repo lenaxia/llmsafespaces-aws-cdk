@@ -218,13 +218,10 @@ export class PlatformStack extends cdk.Stack {
       });
     }
 
-    // Also tag the postgres + valkey secrets so the IRSA role can read
-    // them. Done here rather than in DataStack to keep all SM tagging
-    // logic in one place.
-    cdk.Tags.of(postgresSecret).add('llmsafespaces:role', 'app-secret');
-    if (valkeyAuthSecret) {
-      cdk.Tags.of(valkeyAuthSecret).add('llmsafespaces:role', 'app-secret');
-    }
+    // Postgres + Valkey secrets are tagged in DataStack (where they're
+    // created); doing it here is a no-op because they're cross-stack
+    // ISecret refs and CDK's tag propagation won't reach the actual
+    // SM resources.
 
     return new eks.KubernetesManifest(this, 'CredentialsExternalSecret', {
       cluster,
