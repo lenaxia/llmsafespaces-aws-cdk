@@ -5,6 +5,7 @@ import { NetworkStack } from '../lib/network-stack';
 import { ClusterStack } from '../lib/cluster-stack';
 import { DataStack } from '../lib/data-stack';
 import { PlatformStack } from '../lib/platform-stack';
+import { MonitoringStack } from '../lib/monitoring-stack';
 import { haPostureFor } from '../lib/config';
 
 function makeApp(tier: 'mvp' | 'prod') {
@@ -46,7 +47,16 @@ function makeApp(tier: 'mvp' | 'prod') {
     },
   });
 
-  return { network, cluster, data, platform };
+  const monitoring = new MonitoringStack(app, `${tier}-Monitoring`, {
+    env, tags,
+    postgres: data.postgres,
+    valkey: data.valkey,
+    clusterName: 'test',
+    monthlyBudgetUsd: 300,
+    budgetEmail: 'test@example.com',
+  });
+
+  return { network, cluster, data, platform, monitoring };
 }
 
 describe('NetworkStack', () => {
@@ -212,6 +222,44 @@ describe('PlatformStack', () => {
   });
 });
 
+describe('MonitoringStack', () => {
+  test('Creates the alerts SNS topic', () => {
+    const { monitoring } = makeApp('mvp');
+    const t = Template.fromStack(monitoring);
+    t.resourceCountIs('AWS::SNS::Topic', 1);
+  });
+
+  test('Emits RDS + Valkey alarms', () => {
+    const { monitoring } = makeApp('mvp');
+    const t = Template.fromStack(monitoring);
+    // 4 RDS alarms + 3 Valkey alarms + 1 EKS alarm = 8
+    t.resourceCountIs('AWS::CloudWatch::Alarm', 8);
+  });
+
+  test('Creates a monthly budget', () => {
+    const { monitoring } = makeApp('mvp');
+    const t = Template.fromStack(monitoring);
+    t.hasResourceProperties('AWS::Budgets::Budget', {
+      Budget: {
+        BudgetName: 'llmsafespaces-monthly',
+        BudgetType: 'COST',
+        TimeUnit: 'MONTHLY',
+      },
+    } as object);
+  });
+
+  test('Creates alert-router Lambda', () => {
+    const { monitoring } = makeApp('mvp');
+    const t = Template.fromStack(monitoring);
+    // The alert router + the CDK-injected LogRetention helper = 2.
+    t.resourceCountIs('AWS::Lambda::Function', 2);
+    t.hasResourceProperties('AWS::Lambda::Function', {
+      Runtime: 'python3.12',
+      Handler: 'index.handler',
+    } as object);
+  });
+});
+
 describe('Config validation', () => {
   // Quick smoke tests on resolveConfig — caught a class of bugs where
   // bad context produced no error until cdk deploy time.
@@ -267,6 +315,7 @@ describe('Config validation', () => {
         'llmsafespaces:account': '123456789012',
         'llmsafespaces:hostname': 'x.com',
         'llmsafespaces:adminRoleArn': 'arn:aws:iam::123456789012:role/Admin',
+        'llmsafespaces:alertEmail': 'test@example.com',
       },
     });
     const c = resolveConfig(app);
@@ -275,5 +324,6 @@ describe('Config validation', () => {
     expect(c.tier).toBe('mvp');
     expect(c.nodeSpot).toBe(true);
     expect(c.valkeyTls).toBe(false);
+    expect(c.monthlyBudgetUsd).toBe(300);
   });
 });

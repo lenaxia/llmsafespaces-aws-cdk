@@ -8,6 +8,7 @@ import { NetworkStack } from '../lib/network-stack';
 import { ClusterStack } from '../lib/cluster-stack';
 import { DataStack } from '../lib/data-stack';
 import { PlatformStack } from '../lib/platform-stack';
+import { MonitoringStack } from '../lib/monitoring-stack';
 
 /**
  * Stage containing one full deployment (Network + Cluster + Data + Platform).
@@ -62,6 +63,15 @@ class LlmSafeSpacesStage extends cdk.Stage {
       hostname: config.hostname,
       externalSecretsRoleArn: cluster.externalSecretsRole.roleArn,
       imageRefs: config.imageRefs,
+    });
+
+    new MonitoringStack(this, 'Monitoring', {
+      tags,
+      postgres: data.postgres,
+      valkey: data.valkey,
+      clusterName: cluster.cluster.clusterName,
+      monthlyBudgetUsd: config.monthlyBudgetUsd,
+      budgetEmail: config.alertEmail,
     });
   }
 }

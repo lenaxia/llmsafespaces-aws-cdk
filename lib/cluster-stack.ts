@@ -275,17 +275,31 @@ export class ClusterStack extends cdk.Stack {
       createNamespace: false,
       timeout: cdk.Duration.minutes(10),
       values: {
-        // Increase reconcile parallelism + API throttling. Defaults are
-        // tuned for very small clusters; we expect dozens of
-        // HelmReleases at steady state.
-        kustomizeController: {
+        // HA: 2 replicas per controller so a single node reclaim doesn't
+        // stop reconciliation. Trade-off: helm-controller and
+        // kustomize-controller use leader election, so effectively one
+        // active + one standby; source-controller is read-only and
+        // scales horizontally.
+        helmController: {
+          replicas: 2,
           extraArgs: ['--concurrent=8', '--kube-api-qps=500', '--kube-api-burst=1000'],
         },
-        helmController: {
+        kustomizeController: {
+          replicas: 2,
           extraArgs: ['--concurrent=8', '--kube-api-qps=500', '--kube-api-burst=1000'],
         },
         sourceController: {
+          replicas: 2,
           extraArgs: ['--concurrent=8', '--kube-api-qps=500', '--kube-api-burst=1000'],
+        },
+        notificationController: {
+          replicas: 2,
+        },
+        imageAutomationController: {
+          replicas: 2,
+        },
+        imageReflectorController: {
+          replicas: 2,
         },
       },
     });

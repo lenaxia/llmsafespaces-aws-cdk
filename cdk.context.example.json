@@ -33,5 +33,11 @@
   "llmsafespaces:nodeSpot": true,
 
   "_comment_valkeyTls": "Enable Valkey transit encryption + AUTH. Off until lenaxia/LLMSafeSpaces#465 ships TLS support in the chart's Redis client.",
-  "llmsafespaces:valkeyTls": false
+  "llmsafespaces:valkeyTls": false,
+
+  "_comment_budget": "Monthly cost budget in USD. Alarms at 80% actual + 100% forecast to email + SNS.",
+  "llmsafespaces:monthlyBudgetUsd": 300,
+
+  "_comment_alertEmail": "Email address for budget alarms + fallback delivery when Slack/Pushover routing fails. Required.",
+  "llmsafespaces:alertEmail": "you@example.com"
 }

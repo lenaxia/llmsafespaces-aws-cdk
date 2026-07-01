@@ -61,6 +61,10 @@ export interface ResolvedConfig {
   readonly opsRepoUrl: string;
   /** GitOps repo branch / ref. */
   readonly opsRepoBranch: string;
+  /** Monthly cost budget alarm threshold in USD. */
+  readonly monthlyBudgetUsd: number;
+  /** Email address for budget + fallback alerts. */
+  readonly alertEmail: string;
 }
 
 const CTX = 'llmsafespaces:';
@@ -129,6 +133,8 @@ export function resolveConfig(scope: Construct): ResolvedConfig {
     opsRepoUrl: optional<string>(scope, 'opsRepoUrl',
       'https://github.com/lenaxia/llmsafespaces-ops-prod.git'),
     opsRepoBranch: optional<string>(scope, 'opsRepoBranch', 'main'),
+    monthlyBudgetUsd: optional<number>(scope, 'monthlyBudgetUsd', 300),
+    alertEmail: required<string>(scope, 'alertEmail'),
   };
 }
 
