@@ -62,9 +62,9 @@ export class ClusterStack extends cdk.Stack {
     const nodeGroup = this.buildNodeGroup(props);
     this.grantClusterAdmin(props.adminRoleArn);
     this.installEbsCsiDriver();
-    this.installAlbController(nodeGroup);
+    const albController = this.installAlbController(nodeGroup);
     this.externalSecretsRole = this.buildExternalSecretsRole();
-    this.installFlux(nodeGroup, props);
+    this.installFlux(nodeGroup, albController, props);
 
     const gvisorInstaller = buildGvisorInstaller(this.cluster);
     gvisorInstaller.node.addDependency(nodeGroup);
@@ -176,7 +176,7 @@ export class ClusterStack extends cdk.Stack {
     });
   }
 
-  private installAlbController(nodeGroup: eks.Nodegroup): void {
+  private installAlbController(nodeGroup: eks.Nodegroup): eks.AlbController {
     const controller = new eks.AlbController(this, 'AlbController', {
       cluster: this.cluster,
       version: eks.AlbControllerVersion.V2_8_2,
@@ -184,6 +184,7 @@ export class ClusterStack extends cdk.Stack {
     // The controller pods need somewhere to schedule before they can
     // accept the post-install webhook. Without this dep, CFN times out.
     controller.node.addDependency(nodeGroup);
+    return controller;
   }
 
   /**
@@ -241,7 +242,11 @@ export class ClusterStack extends cdk.Stack {
    * Without it, encrypted secrets in the ops repo can't be decrypted
    * (Flux Kustomizations stuck waiting). Documented in README.
    */
-  private installFlux(nodeGroup: eks.Nodegroup, props: ClusterStackProps): void {
+  private installFlux(
+    nodeGroup: eks.Nodegroup,
+    albController: eks.AlbController,
+    props: ClusterStackProps,
+  ): void {
     // Install Flux from the published OCI manifests.
     const fluxInstall = this.cluster.addManifest('FluxNamespace', {
       apiVersion: 'v1',
@@ -258,15 +263,15 @@ export class ClusterStack extends cdk.Stack {
     fluxInstall.node.addDependency(nodeGroup);
 
     // Flux's own install via Helm — `fluxcd-community/flux2` chart.
-    // Alternative: apply the upstream manifest from
-    // github.com/fluxcd/flux2/releases/.../install.yaml, but the chart
-    // handles CRD + version pinning cleaner.
+    // v2.17.2 ships Flux 2.7.5 which is compatible with K8s 1.32. Newer
+    // Flux versions (2.8+) require K8s 1.33+. Bump when we upgrade EKS.
+    // v2.7.5 has v1 API for OCIRepository (matches ops-prod cluster.yaml).
     const fluxChart = this.cluster.addHelmChart('Flux', {
       chart: 'flux2',
       release: 'flux2',
       repository: 'https://fluxcd-community.github.io/helm-charts',
       namespace: 'flux-system',
-      version: '2.14.1',
+      version: '2.17.2',
       createNamespace: false,
       timeout: cdk.Duration.minutes(10),
       values: {
@@ -285,6 +290,10 @@ export class ClusterStack extends cdk.Stack {
       },
     });
     fluxChart.node.addDependency(fluxInstall);
+    // The Flux chart creates Services that get mutated by the AWS LBC
+    // webhook. If LBC isn't fully ready (webhook Service has endpoints),
+    // Flux Service creation 503s and the chart install fails. Wait.
+    fluxChart.node.addDependency(albController);
 
     // Bootstrap manifest: a GitRepository pointing at ops-prod and a
     // root Kustomization that points at kubernetes/flux/config.
