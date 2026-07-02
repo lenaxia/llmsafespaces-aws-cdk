@@ -18,6 +18,13 @@ export interface PlatformStackProps extends cdk.StackProps {
   readonly hostname: string;
   /** ARN of the IRSA role for external-secrets-operator. */
   readonly externalSecretsRoleArn: string;
+  /**
+   * EKS API server endpoint (host only, no scheme). Consumed by
+   * Cilium's kubeProxyReplacement=true mode which needs to know the
+   * apiserver directly, not via the kubernetes.default.svc address
+   * it's replacing.
+   */
+  readonly kubernetesApiHost: string;
   /** Per-image OCI refs from context. */
   readonly imageRefs: {
     readonly api: string;
@@ -232,6 +239,10 @@ export class PlatformStack extends cdk.Stack {
 
           // ACM
           ACM_CERT_ARN: this.certificate.certificateArn,
+
+          // Kubernetes API endpoint (host only) — Cilium's
+          // kubeProxyReplacement=true mode needs it directly.
+          KUBERNETES_API_HOST: props.kubernetesApiHost,
 
           // Image refs (split repo:tag for chart template compatibility)
           IMAGE_REPO_API: api.repo,

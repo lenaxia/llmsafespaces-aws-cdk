@@ -39,6 +39,7 @@ function makeApp(tier: 'mvp' | 'prod') {
     valkeyEndpoint: data.valkey.attrPrimaryEndPointAddress,
     hostname: 'safespaces.example.com',
     externalSecretsRoleArn: cluster.externalSecretsRole.roleArn,
+    kubernetesApiHost: 'ABC123.gr7.us-west-2.eks.amazonaws.com',
     imageRefs: {
       api: 'ghcr.io/example/api:1.0.0',
       controller: 'ghcr.io/example/controller:1.0.0',
@@ -219,6 +220,54 @@ describe('PlatformStack', () => {
         { Key: 'llmsafespaces:role', Value: 'app-secret' },
       ]),
     } as object);
+  });
+
+  test('Imports ACM cert instead of creating one when certificateArn is provided', () => {
+    // Build a fresh app with certificateArn context set. We use the raw
+    // constructor rather than makeApp() so we can inject the extra prop.
+    const app = new cdk.App();
+    const env = { account: '111111111111', region: 'us-west-2' };
+    const ha = haPostureFor('mvp');
+    const tags = { project: 'llmsafespaces', tier: 'mvp' as const };
+    const network = new NetworkStack(app, 'ImportCert-Network', { env, tags, ha });
+    const cluster = new ClusterStack(app, 'ImportCert-Cluster', {
+      env, tags, vpc: network.vpc, ha,
+      adminRoleArn: 'arn:aws:iam::111111111111:role/Admin',
+      nodeInstanceTypes: ['t3a.large'],
+      nodeSpot: true, displayRegion: 'us-west-2', awsProfile: 'default',
+      opsRepoUrl: 'https://github.com/example/ops.git', opsRepoBranch: 'main',
+    });
+    const data = new DataStack(app, 'ImportCert-Data', {
+      env, tags, vpc: network.vpc,
+      clusterSecurityGroup: cluster.clusterSecurityGroup,
+      ha, valkeyTls: false,
+    });
+    const platform = new PlatformStack(app, 'ImportCert-Platform', {
+      env, tags,
+      cluster: cluster.cluster,
+      postgresSecret: data.postgresSecret,
+      valkeyAuthSecret: data.valkeyAuthSecret,
+      postgresEndpoint: data.postgres.dbInstanceEndpointAddress,
+      valkeyEndpoint: data.valkey.attrPrimaryEndPointAddress,
+      hostname: 'safespaces.example.com',
+      externalSecretsRoleArn: cluster.externalSecretsRole.roleArn,
+      kubernetesApiHost: 'ABC123.gr7.us-west-2.eks.amazonaws.com',
+      certificateArn: 'arn:aws:acm:us-west-2:111111111111:certificate/deadbeef',
+      imageRefs: {
+        api: 'ghcr.io/example/api:1.0.0',
+        controller: 'ghcr.io/example/controller:1.0.0',
+        frontend: 'ghcr.io/example/frontend:1.0.0',
+        base: 'ghcr.io/example/base:1.0.0',
+      },
+    });
+    const t = Template.fromStack(platform);
+    // No AWS::CertificateManager::Certificate resource — the cert is
+    // imported, not managed.
+    t.resourceCountIs('AWS::CertificateManager::Certificate', 0);
+    // And CertArn output points at the provided ARN.
+    t.hasOutput('CertArn', {
+      Value: 'arn:aws:acm:us-west-2:111111111111:certificate/deadbeef',
+    });
   });
 });
 

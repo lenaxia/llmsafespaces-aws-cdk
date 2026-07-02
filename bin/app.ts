@@ -62,6 +62,9 @@ class LlmSafeSpacesStage extends cdk.Stage {
       valkeyEndpoint: data.valkey.attrPrimaryEndPointAddress,
       hostname: config.hostname,
       externalSecretsRoleArn: cluster.externalSecretsRole.roleArn,
+      // Strip scheme — Cilium's k8sServiceHost expects `host.eks…`, not `https://…`.
+      // cluster.cluster.clusterEndpoint is `https://<host>` at synth-time.
+      kubernetesApiHost: cdk.Fn.select(1, cdk.Fn.split('//', cluster.cluster.clusterEndpoint)),
       imageRefs: config.imageRefs,
       certificateArn: config.certificateArn,
     });
