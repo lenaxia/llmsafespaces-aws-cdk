@@ -152,7 +152,10 @@ def _format(record):
             alarm = parsed['AlarmName']
             state = parsed.get('NewStateValue', '?')
             reason = parsed.get('NewStateReason', '')
-            return f'*{alarm}* {state}: {reason}'
+            # Map alarm names to runbooks in the ops-prod repo.
+            runbook_slug = alarm.replace('llmsafespaces-', '')
+            runbook = f'https://github.com/lenaxia/llmsafespaces-ops-prod/blob/main/docs/runbooks/{runbook_slug}.md'
+            return f'*{alarm}* {state}\\n{reason}\\n:book: <{runbook}|Runbook>'
     except json.JSONDecodeError:
         pass
     return f'*{subject}*: {message[:1500]}'

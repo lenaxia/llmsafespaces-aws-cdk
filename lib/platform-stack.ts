@@ -54,6 +54,11 @@ export class PlatformStack extends cdk.Stack {
 
     this.certificate = new acm.Certificate(this, 'Cert', {
       domainName: props.hostname,
+      // Subject alt name for Grafana (and future admin/monitoring
+      // subdomains). ACM covers up to 10 SANs free.
+      subjectAlternativeNames: [
+        `grafana.${props.hostname}`,
+      ],
       validation: acm.CertificateValidation.fromDns(),
     });
 
