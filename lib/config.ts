@@ -65,6 +65,19 @@ export interface ResolvedConfig {
   readonly monthlyBudgetUsd: number;
   /** Email address for budget + fallback alerts. */
   readonly alertEmail: string;
+  /**
+   * Optional pre-provisioned ACM cert ARN. When set, PlatformStack
+   * imports the cert instead of creating one. Recommended for prod so
+   * the cert's lifecycle (SAN additions, revalidation) is decoupled
+   * from the CDK stack — adding a SAN otherwise forces a full cert
+   * replacement which stalls `cdk deploy` on manual DNS validation.
+   *
+   * Provision the cert once out-of-band (Terraform, console, or a
+   * throwaway CDK stack), then set this. Leave unset for greenfield
+   * deploys — CDK will create + validate a cert covering hostname +
+   * `grafana.hostname`.
+   */
+  readonly certificateArn?: string;
 }
 
 const CTX = 'llmsafespaces:';
@@ -135,6 +148,7 @@ export function resolveConfig(scope: Construct): ResolvedConfig {
     opsRepoBranch: optional<string>(scope, 'opsRepoBranch', 'main'),
     monthlyBudgetUsd: optional<number>(scope, 'monthlyBudgetUsd', 300),
     alertEmail: required<string>(scope, 'alertEmail'),
+    certificateArn: optional<string | undefined>(scope, 'certificateArn', undefined),
   };
 }
 

@@ -39,5 +39,8 @@
   "llmsafespaces:monthlyBudgetUsd": 300,
 
   "_comment_alertEmail": "Email address for budget alarms + fallback delivery when Slack/Pushover routing fails. Required.",
-  "llmsafespaces:alertEmail": "you@example.com"
+  "llmsafespaces:alertEmail": "you@example.com",
+
+  "_comment_certificateArn": "OPTIONAL: pre-provisioned ACM cert ARN. When set, CDK imports the cert instead of creating one. Recommended once the cert is steady-state so SAN additions (grafana., admin., etc.) don't force a full stack replacement + manual DNS validation. Leave unset for greenfield deploys; CDK will create a cert covering hostname + grafana.hostname.",
+  "llmsafespaces:certificateArn": "arn:aws:acm:us-west-2:111111111111:certificate/00000000-0000-0000-0000-000000000000"
 }

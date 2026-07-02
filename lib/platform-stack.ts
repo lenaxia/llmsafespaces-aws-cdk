@@ -25,6 +25,17 @@ export interface PlatformStackProps extends cdk.StackProps {
     readonly frontend: string;
     readonly base: string;
   };
+  /**
+   * Optional pre-provisioned ACM cert ARN. When set, the cert is
+   * imported (no lifecycle management). When unset, a new cert is
+   * created covering hostname + `grafana.hostname`.
+   *
+   * Why this exists: `subjectAlternativeNames` mutations force ACM
+   * cert replacement, and DNS-validated replacements stall `cdk deploy`
+   * indefinitely on a manual DNS step. Managing the cert out-of-band
+   * (Terraform / console) makes SAN additions a no-CDK-deploy operation.
+   */
+  readonly certificateArn?: string;
 }
 
 const NAMESPACE = 'llmsafespaces';
@@ -52,15 +63,23 @@ export class PlatformStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: PlatformStackProps) {
     super(scope, id, props);
 
-    this.certificate = new acm.Certificate(this, 'Cert', {
-      domainName: props.hostname,
-      // Subject alt name for Grafana (and future admin/monitoring
-      // subdomains). ACM covers up to 10 SANs free.
-      subjectAlternativeNames: [
-        `grafana.${props.hostname}`,
-      ],
-      validation: acm.CertificateValidation.fromDns(),
-    });
+    this.certificate = props.certificateArn
+      ? acm.Certificate.fromCertificateArn(this, 'Cert', props.certificateArn)
+      : new acm.Certificate(this, 'Cert', {
+          domainName: props.hostname,
+          // Subject alt name for Grafana (and future admin/monitoring
+          // subdomains). ACM covers up to 10 SANs free.
+          //
+          // NB: mutating this list on an existing cert forces
+          // replacement + fresh DNS validation. Once the cert is
+          // steady-state, promote it to out-of-band management by
+          // setting `llmsafespaces:certificateArn` and CDK will import
+          // instead of manage. See config.ts for the rationale.
+          subjectAlternativeNames: [
+            `grafana.${props.hostname}`,
+          ],
+          validation: acm.CertificateValidation.fromDns(),
+        });
 
     const appSecrets = this.buildAppSecrets();
     const llmsafespacesNs = this.buildLlmsafespacesNamespace(props.cluster);

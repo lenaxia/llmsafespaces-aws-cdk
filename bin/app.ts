@@ -63,6 +63,7 @@ class LlmSafeSpacesStage extends cdk.Stage {
       hostname: config.hostname,
       externalSecretsRoleArn: cluster.externalSecretsRole.roleArn,
       imageRefs: config.imageRefs,
+      certificateArn: config.certificateArn,
     });
 
     new MonitoringStack(this, 'Monitoring', {
