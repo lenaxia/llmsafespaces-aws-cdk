@@ -1,0 +1,13 @@
+# Copy this to terraform.tfvars and fill in real values.
+# terraform.tfvars is gitignored to prevent leaking IDs / secrets.
+
+cloudflare_account_id = "REPLACE_WITH_YOUR_CF_ACCOUNT_ID"
+zone_name             = "thekao.cloud"
+subdomains            = ["safespaces", "grafana.safespaces"]
+alb_hostname          = "k8s-llmsafes-llmsafes-XXXXXXXXXX-XXXXXXXXXX.us-west-2.elb.amazonaws.com"
+
+# Rate limits: defaults are safe; override only if tuning based on
+# observed real-user traffic.
+# rate_limit_login_requests_per_minute = 5
+# rate_limit_signup_requests_per_hour  = 3
+# rate_limit_api_requests_per_minute   = 60
