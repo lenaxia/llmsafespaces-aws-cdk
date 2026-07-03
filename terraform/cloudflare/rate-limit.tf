@@ -8,6 +8,17 @@
 # Characteristics: [cf.colo.id, ip.src] means "per IP per colo" — the
 # cf.colo.id term prevents anycast smearing where two requests from
 # the same IP land on different edges and each thinks it saw only one.
+#
+# FREE-TIER CAVEAT (discovered 2026-07-02):
+#   * Free plan allows exactly 1 rate-limit rule per zone (this module has 3).
+#   * `period` must be `10` seconds (not 60/3600). Setting anything else fails:
+#       "not entitled to use the period 60, can only use a period among [10]"
+#   * `mitigation_timeout` must be `10` seconds (not 600/3600). Fails with:
+#       "not entitled to use a mitigation timeout different from 10"
+# For Free-tier zones, replace this whole file with a single-rule variant
+# targeting /api/v1/auth/login (highest-value target for credential
+# stuffing). See ~/llmsafespaces-ops-prod/docs/runbooks/cloudflare-cutover.md
+# step A7 for the exact payload.
 resource "cloudflare_ruleset" "zone_ratelimit" {
   zone_id     = data.cloudflare_zone.this.zone_id
   name        = "llmsafespaces rate limits"

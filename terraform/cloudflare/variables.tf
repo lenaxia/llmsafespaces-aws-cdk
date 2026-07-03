@@ -31,25 +31,41 @@ variable "turnstile_domains" {
 }
 
 variable "rate_limit_login_requests_per_minute" {
-  description = "Per-IP request rate limit for POST /api/v1/auth/login. Real users very rarely need more than 5/min."
-  type        = number
-  default     = 5
+  description = <<EOT
+Per-IP request rate limit for POST /api/v1/auth/login. Real users very rarely need more than 5/min.
+
+FREE-TIER CAVEAT (discovered 2026-07-02): Cloudflare Free plan only allows period=10s (not 60s) and only 1 rate-limit rule per zone. If the target zone is Free, use rate-limit.tf's single-rule variant with period=10 requests_per_period=5 mitigation_timeout=10.
+EOT
+  type    = number
+  default = 5
 }
 
 variable "rate_limit_signup_requests_per_hour" {
-  description = "Per-IP request rate limit for POST /api/v1/auth/signup. 3/hr is aggressive but signup is a low-frequency legit action."
-  type        = number
-  default     = 3
+  description = <<EOT
+Per-IP request rate limit for POST /api/v1/auth/signup. 3/hr is aggressive but signup is a low-frequency legit action.
+
+FREE-TIER CAVEAT: unused on Free plan (only 1 rate-limit rule available; login takes the slot).
+EOT
+  type    = number
+  default = 3
 }
 
 variable "rate_limit_api_requests_per_minute" {
-  description = "Per-IP request rate limit for the general /api/v1/ path (excluding /login and /signup which have their own more-restrictive limits)."
-  type        = number
-  default     = 60
+  description = <<EOT
+Per-IP request rate limit for the general /api/v1/ path (excluding /login and /signup which have their own more-restrictive limits).
+
+FREE-TIER CAVEAT: unused on Free plan (only 1 rate-limit rule available).
+EOT
+  type    = number
+  default = 60
 }
 
 variable "enable_bot_fight_mode" {
-  description = "Toggle Cloudflare Bot Fight Mode (free-tier feature). Set to false during controlled load tests to disable it."
-  type        = bool
-  default     = true
+  description = <<EOT
+Toggle Cloudflare Bot Fight Mode. Set to false during controlled load tests to disable it.
+
+FREE-TIER CAVEAT: On Free plan, Bot Fight Mode is dashboard-only — no API endpoint accepts writes. This variable is ignored on Free; toggle manually in CF dashboard → Security → Bots.
+EOT
+  type    = bool
+  default = true
 }

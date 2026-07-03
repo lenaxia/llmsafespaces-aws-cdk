@@ -8,6 +8,14 @@
 # Managed ruleset IDs are Cloudflare-global constants — they don't
 # change across accounts/zones. See:
 #   https://developers.cloudflare.com/waf/managed-rules/reference/managed-rulesets/
+#
+# FREE-TIER CAVEAT (discovered 2026-07-02): the Managed Ruleset and
+# OWASP CRS below both require Pro plan ($20/mo/zone). On Free plan,
+# only the "Cloudflare Managed Free Ruleset" is available:
+#   77454fe2d30c4220b5701f6fdfb893ba (verified on our zone; may differ)
+# If the target zone is Free, drop both execute rules below and add
+# a single execute rule for the Managed Free Ruleset. See:
+#   ~/llmsafespaces-ops-prod/docs/runbooks/cloudflare-cutover.md#step-a5
 
 locals {
   # Cloudflare Managed Ruleset (general WAF, mostly generic exploits).

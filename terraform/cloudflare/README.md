@@ -1,5 +1,7 @@
 # Cloudflare configuration for llmsafespaces
 
+> **STATUS (2026-07-02)**: This Terraform module is **NOT** the current source of truth for the prod Cloudflare zone. The 2026-07-02 cutover used direct Cloudflare v4 API calls (curl-based, documented in `../../../llmsafespaces-ops-prod/docs/runbooks/cloudflare-cutover.md` under "Path A"). This module exists for future use if the team ever grows past one operator, but it has known Free-tier incompatibilities that need fixing before `terraform apply` will succeed. See "Free-tier limitations" below.
+
 Terraform module that manages the Cloudflare zone in front of the ALB:
 
 - DNS records (`safespaces.thekao.cloud`, `grafana.safespaces.thekao.cloud`) → ALB, proxied through Cloudflare.
@@ -10,14 +12,27 @@ Terraform module that manages the Cloudflare zone in front of the ALB:
 
 Origin-lock (restricting ALB ingress to Cloudflare's edge IPs) is done on the K8s side via `alb.ingress.kubernetes.io/inbound-cidrs`, not here — see `../../../llmsafespaces-ops-prod/kubernetes/apps/llmsafespaces/llmsafespaces/app/helm-release.yaml`.
 
+## Free-tier limitations (discovered 2026-07-02)
+
+If your Cloudflare plan is **Free** on the target zone, several resources in this module will fail at apply time:
+
+1. **`cloudflare_ruleset.zone_ratelimit`** deploys 3 rules with `period: 60` / `mitigation_timeout: 600`. Free tier accepts only 1 rate-limit rule, and it must have `period: 10` and `mitigation_timeout: 10`. Fix: replace `rate-limit.tf` with a single-rule variant (keep only the `/api/v1/auth/login` rule) with those values.
+
+2. **`waf.tf` OWASP Core Ruleset execute rule**. Free tier only exposes the "Cloudflare Managed Free Ruleset" (ID `77454fe2d30c4220b5701f6fdfb893ba` on our zone). Drop the OWASP execute rule; keep the Managed Free Ruleset one.
+
+3. **`bot-fight.tf`**. Free-tier Bot Fight Mode cannot be toggled via any API endpoint accessible to standard tokens — it's dashboard-only. Drop this resource; toggle it manually in the CF dashboard → Security → Bots.
+
+4. **`cloudflare_turnstile_widget`** works, but the site key hasn't been wired into the frontend chart. Emitted as an output; chart-side PR pending.
+
 ## Prerequisites
 
 1. **Cloudflare API token** with permissions:
+   - `Zone:Zone:Read`
    - `Zone:DNS:Edit`
    - `Zone:Zone Settings:Edit`
    - `Zone:Firewall Services:Edit`
-   - `Zone:WAF:Edit`
-   - `Account:Turnstile Sites:Edit`
+   - `Zone:Zone WAF:Edit`   ← required for `/zones/$ZONE/rulesets` endpoints; separate from `Firewall Services`.
+   - `Account:Turnstile Sites:Edit`   ← only if using Turnstile.
 
    Scope: restrict to zone `thekao.cloud`.
 
