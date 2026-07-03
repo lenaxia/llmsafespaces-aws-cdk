@@ -82,8 +82,13 @@ export class PlatformStack extends cdk.Stack {
           // steady-state, promote it to out-of-band management by
           // setting `llmsafespaces:certificateArn` and CDK will import
           // instead of manage. See config.ts for the rationale.
+          // Grafana hostname is a first-level subdomain under the
+          // zone (e.g. safespaces-grafana.thekao.cloud) so it fits
+          // Cloudflare Universal SSL's *.zone wildcard on Free tier.
+          // See the GRAFANA_HOST comment in cluster-config below for
+          // the full reasoning.
           subjectAlternativeNames: [
-            `grafana.${props.hostname}`,
+            `${props.hostname.split('.')[0]}-grafana.${props.hostname.split('.').slice(1).join('.')}`,
           ],
           validation: acm.CertificateValidation.fromDns(),
         });
@@ -239,6 +244,17 @@ export class PlatformStack extends cdk.Stack {
 
           // ACM
           ACM_CERT_ARN: this.certificate.certificateArn,
+
+          // Public hostname (frontend Ingress + all ${DOMAIN}
+          // substitutions in ops-prod HR values).
+          DOMAIN: props.hostname,
+
+          // Grafana hostname — deliberately a first-level subdomain
+          // under the zone (e.g. "safespaces-grafana.thekao.cloud",
+          // NOT "grafana.safespaces.thekao.cloud") so it fits
+          // Cloudflare Universal SSL's *.zone wildcard on Free tier.
+          // Nested subdomains would need a paid Advanced Certificate.
+          GRAFANA_HOST: `${props.hostname.split('.')[0]}-grafana.${props.hostname.split('.').slice(1).join('.')}`,
 
           // Kubernetes API endpoint (host only) — Cilium's
           // kubeProxyReplacement=true mode needs it directly.
